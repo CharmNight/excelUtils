@@ -1,13 +1,16 @@
 package com.night.excel.utils;
 
+import com.night.excel.beans.ExcelExportEntity;
+import com.night.excel.enmus.ExcelType;
 import org.apache.poi.hssf.usermodel.*;
-import org.apache.poi.ss.usermodel.HorizontalAlignment;
+import org.apache.poi.ss.usermodel.*;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Controller;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 
@@ -18,10 +21,11 @@ public class ExcelUtils<T> {
 	 */
 	private static final int MAX_LENS = 65535;
 
+	private static final String SHEET_NAME_SPLIT = "_";
 
-	public HSSFWorkbook pubGetHSSFWorkbook(String sheetName, List<String> title, List<T> values) {
-		HSSFWorkbook wb = getHSSFWorkbook(sheetName, title, null);
-		HSSFSheet sheet = getCurrentSheet(wb);
+	public HSSFWorkbook pubGetHSSFWorkbook(String sheetName, List<ExcelExportEntity> title, List<T> values) {
+		Workbook wb = getWorkbook(null, ExcelType.HSSF);
+		Sheet sheet = getCurrentSheet(wb);
 		int currentSheetNum = getCurrentSheetNum(wb);
 		Boolean needNewSheet = checkAddNewSheet(sheet, 0);
 		if (needNewSheet) {
@@ -64,37 +68,95 @@ public class ExcelUtils<T> {
 			writeContent(sheet, values, wb);
 		}
 
-		return wb;
+		return (HSSFWorkbook) wb;
 	}
 
-	/**
-	 * 获取 HSSFWorkbook
-	 * @param sheetName
-	 * @param sheetPage
-	 * @param title
-	 * @param wb
-	 * @return
-	 */
-	private HSSFWorkbook getHSSFWorkbook(String sheetName, Integer sheetPage, List<String> title, HSSFWorkbook wb) {
-		// 第一步，创建一个HSSFWorkbook，对应一个Excel文件
-		if (wb == null) {
-			wb = new HSSFWorkbook();
+	public Sheet createdSheet(Workbook wb, String sheetName){
+		try {
+			return wb.createSheet(sheetName);
+		}catch (Exception e){
+			// 这个名字重复
+			String baseSheetName = sheetName.split(SHEET_NAME_SPLIT)[0];
+			for (int i = 1; ; i++) {
+				try {
+					return wb.createSheet(baseSheetName + SHEET_NAME_SPLIT + i);
+				}catch (Exception e2){
+					continue;
+				}
+			}
 		}
-//		getSheet(sheetName, title, sheetPage, wb);
-		return wb;
 	}
 
 	/**
-	 * 获取 HSSFWorkbook
+	 *
+	 * 另一种追加形式, 使用时 可以支持 写入多个sheet
+	 *
+	 * @param wb
 	 * @param sheetName
 	 * @param title
+	 * @param values
+	 * @return
+	 */
+	public Workbook appendData(Workbook wb, String sheetName, List<ExcelExportEntity> title, List<T> values) {
+		HSSFWorkbook hssfWorkbook = createHSSFWorkbook(wb);
+
+		Sheet sheet = createdSheet(wb, sheetName);
+		// 表格样式暂无  QAQ
+
+		// 当前仅支持 title 为1
+		setTitle(title, sheet, hssfWorkbook);
+		// 暂时 手动 title + 1
+		int rowSize = sheet.getPhysicalNumberOfRows();
+
+		Iterator<T> iterator = values.iterator();
+		while (iterator.hasNext()){
+			T next = iterator.next();
+
+			if (rowSize > MAX_LENS) {
+				sheet = createdSheet(wb, sheet.getSheetName());
+				setTitle(title, sheet, hssfWorkbook);
+				rowSize = sheet.getPhysicalNumberOfRows();
+			}
+			rowSize += createCells(rowSize, next, title, sheet, hssfWorkbook);
+		}
+
+		return wb;
+	}
+
+	public HSSFWorkbook createHSSFWorkbook(Workbook wb) {
+		return (HSSFWorkbook) getWorkbook(wb, ExcelType.HSSF);
+
+	}
+
+	private int createCells(int rowSize, T next, List<ExcelExportEntity> fields, Sheet sheet, Workbook wb) {
+		System.out.println(rowSize);
+		Row row = sheet.getRow(rowSize) == null ? sheet.createRow(rowSize) : sheet.getRow(rowSize);
+		for (int k = 0, paramSize = fields.size(); k < paramSize; k++){
+			ExcelExportEntity excelExportEntity = fields.get(k);
+			Field field = excelExportEntity.getField();
+			field.setAccessible(true);
+			try {
+				 Object res = field.get(next);
+				row.createCell(k).setCellValue(res.toString());
+			} catch (IllegalAccessException e) {
+				e.printStackTrace();
+			}
+		}
+		return 1;
+	}
+
+
+	/**
+	 * 获取 Workbook
 	 * @param wb
 	 * @return
 	 */
-	private HSSFWorkbook getHSSFWorkbook(String sheetName, List<String> title, HSSFWorkbook wb){
+	private Workbook getWorkbook(Workbook wb, ExcelType excelType){
 		// get wb
 		if (Objects.isNull(wb)) {
-			wb = getHSSFWorkbook(sheetName, 0, title, null);
+			if (excelType.equals(ExcelType.HSSF)) {
+				wb = new HSSFWorkbook();
+			}
 		}
 		return wb;
 	}
@@ -105,7 +167,7 @@ public class ExcelUtils<T> {
 	 * @param sheetPage
 	 * @return
 	 */
-	private HSSFSheet getSheet(HSSFWorkbook wb, int sheetPage) {
+	private Sheet getSheet(Workbook wb, int sheetPage) {
 		try {
 			return wb.getSheetAt(sheetPage);
 		}catch (Exception e){
@@ -121,14 +183,13 @@ public class ExcelUtils<T> {
 	 * @param wb
 	 * @return
 	 */
-	private HSSFSheet getSheet(String sheetName, List<String> title, Integer sheetPage, HSSFWorkbook wb) {
+	private Sheet getSheet(String sheetName, List<ExcelExportEntity> title, Integer sheetPage, Workbook wb) {
 		if (sheetPage !=0) {
 			sheetName = sheetName + sheetPage;
 		}
-		HSSFSheet sheet = wb.getSheet(sheetName);
+		Sheet sheet = wb.getSheet(sheetName);
 		if (Objects.isNull(sheet)) {
 			sheet = wb.createSheet(sheetName);
-
 			setTitle(title, sheet, wb);
 		}
 		return sheet;
@@ -140,17 +201,20 @@ public class ExcelUtils<T> {
 	 * @param sheet
 	 * @param wb
 	 */
-	private void setTitle(List<String> title, HSSFSheet sheet, HSSFWorkbook wb) {
+	private void setTitle(List<ExcelExportEntity> title, Sheet sheet, Workbook wb) {
 		//声明列对象
-		HSSFCell cell = null;
-		HSSFRow row = sheet.createRow(0);
-		// 第四步，创建单元格，并设置值表头 设置表头居中
-		HSSFCellStyle style = wb.createCellStyle();
+		Cell cell = null;
+		if (sheet.getPhysicalNumberOfRows() != 0) {
+			return;
+		}
+		Row row = sheet.createRow(0);
+		// 创建单元格，并设置值表头 设置表头居中
+		CellStyle style = wb.createCellStyle();
 		style.setAlignment(HorizontalAlignment.CENTER_SELECTION);
 		//创建标题
 		for (int i = 0; i < title.size(); i++) {
 			cell = row.createCell(i);
-			cell.setCellValue(title.get(i));
+			cell.setCellValue(title.get(i).getName());
 			cell.setCellStyle(style);
 		}
 	}
@@ -162,12 +226,12 @@ public class ExcelUtils<T> {
 	 * @param wb
 	 * @return
 	 */
-	private HSSFWorkbook writeContent(HSSFSheet sheet, List<T> values, HSSFWorkbook wb){
+	private Workbook writeContent(Sheet sheet, List<T> values, Workbook wb){
 
 		int rows = sheet.getPhysicalNumberOfRows();
 		//创建内容
 		for (int i = 0; i < values.size(); i++) {
-			HSSFRow row = sheet.createRow(rows + i);
+			Row row = sheet.createRow(rows + i);
 			T t = values.get(i);
 			Class<?> clazz = t.getClass();
 
@@ -188,10 +252,10 @@ public class ExcelUtils<T> {
 	 * @param wb
 	 * @return
 	 */
-	private HSSFSheet getCurrentSheet(HSSFWorkbook wb){
+	private Sheet getCurrentSheet(Workbook wb){
 		// 获取当前页
 		int sheetPage = getCurrentSheetNum(wb);
-		HSSFSheet sheet = getSheet(wb, sheetPage);
+		Sheet sheet = getSheet(wb, sheetPage);
 		return sheet;
 
 	}
@@ -201,7 +265,7 @@ public class ExcelUtils<T> {
 	 * @param wb
 	 * @return
 	 */
-	private int getCurrentSheetNum(HSSFWorkbook wb) {
+	private int getCurrentSheetNum(Workbook wb) {
 		int numberOfSheets = wb.getNumberOfSheets();
 		return numberOfSheets != 0 ? numberOfSheets-1 : 0;
 	}
@@ -212,7 +276,7 @@ public class ExcelUtils<T> {
 	 * @param sheetPage
 	 * @return true 需要
 	 */
-	private Boolean checkAddNewSheet(HSSFSheet sheet, int sheetPage){
+	private Boolean checkAddNewSheet(Sheet sheet, int sheetPage){
 		// 判断是否需要扩页
 		if (sheetPage == 0) {
 			if (Objects.isNull(sheet)) {

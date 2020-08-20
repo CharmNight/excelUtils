@@ -1,7 +1,14 @@
 # excelUtils
 基于poi 练手的一个excel导出项目
 
-## 使用方式 详情见 test下 `UserInfoExcelBeanTest`
+## 新增
+> 导出本地, 支持 同时写入多个sheet页,
+>
+> 如果 sheet 达到最大值 默认65535 可以自动扩展页 自动新增sheet名称规则: sheet_1\2\3
+> 
+>使用方式 详情见 test下 `AppendExcelBeanTest`
+
+## 普通导出  详情见 test下 `UserInfoExcelBeanTest`
 
 ### 继承 `ExcelBean<UserInfoExcelBean>` 
 ```java
@@ -69,6 +76,14 @@ bean.exportToExcel("导出路径", 这里是个List<内容>);
 
 ```
 
+## 多sheet导出 详情见 test下 `AppendExcelBeanTest`
+```java
+// Map <String: sheetName, List<T>: 列的值>
+Map<String, List<UserInfoExcelBean>> map = new HashMap<>();
+
+bean.appendExportToExcel("导出路径", map);
+```
+
 
 ## 代码阅读
 utils 包下
@@ -85,3 +100,4 @@ fields 包      -- 注解类
 beans 包
 - ExcelBean -- 主要根基类 使用时需要继承的类 (我...取名取错了)
 - UserInfoExcelBean -- 这个为了测试演示 
+- ExcelExportEntity --  excel映射关系
